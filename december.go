@@ -16,87 +16,135 @@
 package december
 
 import "unsafe"
-import "fmt"
 
-type EventHandler func(*Event)
+// Inspiron by events
+type Parameters map[string]interface{}
 
+// Event define
 type Event struct {
-	Name            string
-	Params          map[string]interface{}
-	EventDependency map[string][]chan *Event
-	Handler         map[string][]*EventHandler
+	Name   string
+	Params Parameters
 }
 
-func (e *Event) AddEventDependency(event *Event, handler *EventHandler) {
-	c := make(chan *Event)
-	c <- event
-	e.EventDependency[e.Name] = append(e.EventDependency[e.Name], c)
-	e.Handler[e.Name] = append(e.Handler[e.Name], handler)
+func (self *Event) String() string { return self.Name }
+
+// Listener defines event handler interface
+type Listener interface {
+	Handle(Event)
 }
 
-func (e *Event) DeleteEventDependency(event *Event) {
-	for name, _ := range e.EventDependency {
-		if event.Name == name {
-			delete(e.EventDependency, name)
-			fmt.Printf("delete event name %s master event name %s", event.Name, e.Name)
-		}
+// Stream implements Listener interface on channel
+type Stream chan Event
+
+// Handle Listener
+func (stream Stream) Handle(event Event) { stream <- event }
+
+// Callback implements Listener interface on function
+func Callback(function func(Event)) Listener { return callback{&function} }
+
+// Callback Prototype
+type callback struct{ function *func(Event) }
+
+// Handle Listener
+func (callback callback) Handle(event Event) { (*callback.function)(event) }
+
+// Event has one or multi listener
+type Listeners struct {
+	events    []chan *Event
+	listeners []Listener
+}
+
+func createListeners() *Listeners {
+	return &Listeners{events: []chan *Event{}, listeners: []Listener{}}
+}
+
+// Shard instance global singleton
+var _instance *Dispatcher
+
+func SharedDispatcher() *Dispatcher {
+	if _instance == nil {
+		_instance = &Dispatcher{}
+		_instance.Init()
 	}
+	return _instance
 }
 
-func (e *Event) DeleteEventDependencyByName(event string) {
-	for name, _ := range e.EventDependency {
-		if event == name {
-			delete(e.EventDependency, name)
-			fmt.Printf("delete event name %s master event name %s", event, e.Name)
-		}
-	}
-}
+// Dispatcher stores event(Pointer) and one or multi subscribe
+type Dispatcher struct{ listeners map[string]*Listeners }
 
-func CreateEvent(name string, params map[string]interface{}) *Event {
-	return &Event{Name: name, Params: params, EventDependency: make(map[string][]chan *Event, 0), Handler: make(map[string][]*EventHandler, 0)}
-}
+// Initial Dispatcher
+func (self *Dispatcher) Init() { self.listeners = make(map[string]*Listeners, 0) }
 
-type Dispatcher struct {
-	Listeners map[string]*Event
-}
-
-func NewDispatcher() *Dispatcher {
-	return &Dispatcher{Listeners: make(map[string]*Event, 0)}
-}
-
-func (d *Dispatcher) AddListener(eventName string, handler *EventHandler) {
-	event, ok := d.Listeners[eventName]
+// Add *Event & on or multi Listener(implement Handle Method) &struct{}
+func (self *Dispatcher) AddEventListener(event string, listener Listener) {
+	_, ok := self.listeners[event]
 	if !ok {
-		d.Listeners[eventName] = CreateEvent(eventName, make(map[string]interface{}))
+		self.listeners[event] = createListeners()
 	}
 
-	for _, item := range event.Handler[eventName] {
-		if *(*int)(unsafe.Pointer(item)) == *(*int)(unsafe.Pointer(handler)) {
+	//..
+	for _, item := range self.listeners[event].listeners {
+		a := *(*int)(unsafe.Pointer(&item))
+		b := *(*int)(unsafe.Pointer(&listener))
+		if a == b {
 			return
 		}
 	}
 
-	ch := make(chan *Event)
-	event.EventDependency[eventName] = append(event.EventDependency[eventName][:], ch)
-	event.Handler[eventName] = append(event.Handler[eventName][:], handler)
-	go d.depthHandler(eventName, ch, handler)
+	//  Make a channel recevie outer event
+	_ch := make(chan *Event, 0)
+	self.listeners[event].events = append(self.listeners[event].events[:], _ch)
+	//  Add new listener to listeners
+	self.listeners[event].listeners = append(self.listeners[event].listeners[:], listener)
+	//  Async call back
+	go self._handler(event, _ch, listener)
 }
 
-func (d *Dispatcher) depthHandler(eventName string, ch chan *Event, handler *EventHandler) {
+func (self *Dispatcher) _handler(event string, ch chan *Event, listener Listener) {
 	for {
-		event, ok := <-ch
-		if !ok || event == nil {
+		event := <-ch
+		if event == nil {
 			break
 		}
-		go (*handler)(event)
+		go listener.Handle(*event)
 	}
 }
 
-func (d *Dispatcher) DispatchEvent(event *Event) {
-	tmp, ok := d.Listeners[event.Name]
+func (self *Dispatcher) RemoveEventListener(event string, listener Listener) {
+	lsncrt, ok := self.listeners[event]
+	if !ok {
+		return
+	}
+
+	var (
+		ch    chan *Event
+		key   int = 0
+		exist bool
+	)
+
+	for k, item := range self.listeners[event].listeners {
+		a := *(*int)(unsafe.Pointer(&item))
+		b := *(*int)(unsafe.Pointer(&listener))
+		if a == b {
+			exist = true
+			ch = lsncrt.events[k]
+			key = k
+			break
+		}
+	}
+
+	if exist {
+		ch <- nil
+		lsncrt.events = append(lsncrt.events[:key], lsncrt.events[key+1:]...)
+		lsncrt.listeners = append(lsncrt.listeners[:key], lsncrt.listeners[key+1:]...)
+	}
+}
+
+func (self *Dispatcher) DispatchEvent(event *Event) {
+	events, ok := self.listeners[event.Name]
 	if ok {
-		for _, tmpEvent := range tmp.EventDependency[event.Name] {
-			tmpEvent <- event
+		for _, chEvent := range events.events {
+			chEvent <- event
 		}
 	}
 }

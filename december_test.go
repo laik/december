@@ -1,53 +1,35 @@
 package december
 
 import "testing"
-import "time"
-import "log"
+import "fmt"
+import "os"
 
-func EventTest(t *testing.T) {
+func TestEvent(t *testing.T) {
 
-	params := make(map[string]interface{}, 0)
-	params["ID"] = "dsadsadsa"
-	tmpBuffer := make([]string, 10)
+	dispatcher := SharedDispatcher()
 
-	main := CreateEvent("main", params)
+	args := make(Parameters, 0)
 
-	var rawParse EventHandler = func(event *Event) {
-		ch := make(chan *Event)
-		go func() { ch <- event }()
-		for {
-			select {
-			case tmpEvent, ok := <-ch:
-				if ok {
-					tmpBuffer = append(tmpBuffer, tmpEvent.Params["Data"].(string))
-				}
+	args["start"] = "lualu"
+	args["stop"] = "leipale"
+
+	event1 := &Event{"/access/dafeiji", args}
+
+	_cb := func(e Event) {
+		for key, value := range e.Params {
+			switch key {
+			case "start":
+				fmt.Fprintf(os.Stdout, "i receive start ..........tututu %s\n", value)
+			case "stop":
+				fmt.Fprintf(os.Stdout, "i receive stop ..........dongdongdong %s\n", value)
 			}
 		}
 	}
 
-	main.AddEventDependency(CreateEvent("raw", params), &rawParse)
+	cb := &callback{&_cb}
 
-	if eventList, ok := main.EventDependency["raw"]; ok {
-		for _, event := range eventList {
-			t.Log("add event dependency sucess , event name %s", &(<-event).Name)
-		}
-	}
+	dispatcher.AddEventListener(event1.String(), cb)
 
-	main.DeleteEventDependency(CreateEvent("raw", params))
-	if _, ok := main.EventDependency["raw"]; !ok {
-		t.Log("delete event dependency sucess")
-	}
+	dispatcher.DispatchEvent(event1)
 
-	t.Log("sucesses")
-	t.Logf("%v", tmpBuffer)
-
-	var logger EventHandler = func(event *Event) {
-		ch := make(chan *Event)
-		ch <- event
-		log.Println(<-ch)
-	}
-	dispatcher := NewDispatcher()
-	dispatcher.AddListener("main", &logger)
-	dispatcher.DispatchEvent(main)
-	time.Sleep(1 * time.Second)
 }
