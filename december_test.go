@@ -33,3 +33,49 @@ func TestEvent(t *testing.T) {
 	dispatcher.DispatchEvent(event1)
 
 }
+
+type _userResuestStream struct {
+	user   int
+	result string
+}
+
+type _streams chan *_userResuestStream
+
+func (self _streams) Handle(event Event) {
+	for _, params := range event.Params {
+		self <- &_userResuestStream{params.(int), fmt.Sprintf("receive user id %d request result data %d", params, params)}
+	}
+}
+
+func (self _streams) request(_route string, _args Parameters, dispatcher *Dispatcher) {
+	dispatcher.DispatchEvent(&Event{_route, _args})
+}
+
+func (self _streams) response(t *testing.T) {
+	for {
+		select {
+		case x, ok := <-self:
+			t.Logf("%s", x.result)
+			if !ok {
+				break
+			}
+		}
+	}
+}
+
+func TestReactorStream(t *testing.T) {
+
+	var __streams _streams = make(chan *_userResuestStream, 0)
+
+	var _route string = "/access/papapa"
+
+	dispatcher := SharedDispatcher()
+
+	dispatcher.AddEventListener(_route, __streams)
+
+	go __streams.response(t)
+
+	for i := 0; i < 10; i++ {
+		__streams.request(_route, map[string]interface{}{"test": i}, dispatcher)
+	}
+}
