@@ -64,13 +64,11 @@ func (self _streamsBenchmark) response(t *testing.B) {
 	}
 }
 
+var __streams _streamsBenchmark = make(chan *_userResuestStreamBenchmark, 0)
+
+var _route string = "/access/redisMonitor"
+
 func BenchmarkStream(t *testing.B) {
-
-	var __streams _streamsBenchmark = make(chan *_userResuestStreamBenchmark, 0)
-
-	var _route string = "/access/redisMonitor"
-
-	dispatcher := SharedDispatcher()
 
 	dispatcher.AddEventListener(_route, __streams)
 
