@@ -77,22 +77,21 @@ func (self *Dispatcher) AddEventListener(event string, listener Listener) {
 	}
 
 	//  Make a channel recevie outer event
-	_ch := make(chan *Event, 0)
+	_ch := make(chan *Event)
 	self.listeners[event].events = append(self.listeners[event].events[:], _ch)
 	//  Add new listener to listeners
 	self.listeners[event].listeners = append(self.listeners[event].listeners[:], listener)
 	//  Async call back
-	go self._handler(event, _ch, listener)
-}
-
-func (self *Dispatcher) _handler(event string, ch chan *Event, listener Listener) {
-	for {
-		event := <-ch
-		if event == nil {
-			break
+	go func(ch chan *Event, listener Listener) {
+		for {
+			event := <-ch
+			if event == nil {
+				break
+			}
+			listener.Handle(*event)
 		}
-		go listener.Handle(*event)
-	}
+	}(_ch, listener)
+	// go self._handler(event, _ch, listener)
 }
 
 func (self *Dispatcher) RemoveEventListener(event string, listener Listener) {
